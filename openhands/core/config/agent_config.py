@@ -18,9 +18,11 @@ class AgentConfig(BaseModel):
         enable_prompt_extensions: Whether to use prompt extensions (e.g., microagents, inject runtime info). Default is True.
         disabled_microagents: A list of microagents to disable. Default is None.
         condenser: Configuration for the memory condenser. Default is NoOpCondenserConfig.
+        enable_history_truncation: If history should be truncated once LLM context limit is hit.
     """
 
     codeact_enable_browsing: bool = Field(default=True)
+    enable_som_visual_browsing: bool = Field(default=False)
     codeact_enable_llm_editor: bool = Field(default=False)
     codeact_enable_jupyter: bool = Field(default=True)
     micro_agent_name: str | None = Field(default=None)
@@ -30,3 +32,4 @@ class AgentConfig(BaseModel):
     enable_prompt_extensions: bool = Field(default=True)
     disabled_microagents: list[str] | None = Field(default=None)
     condenser: CondenserConfig = Field(default_factory=NoOpCondenserConfig)
+    enable_history_truncation: bool = Field(default=True)

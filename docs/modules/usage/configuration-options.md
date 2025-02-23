@@ -126,7 +126,7 @@ The core configuration options are defined in the `[core]` section of the `confi
 
 - `runtime`
   - Type: `str`
-  - Default: `"eventstream"`
+  - Default: `"docker"`
   - Description: Runtime environment
 
 - `default_agent`
@@ -339,6 +339,11 @@ The agent configuration options are defined in the `[agent]` and `[agent.<agent_
   - Type: `bool`
   - Default: `false`
   - Description: Whether Jupyter is enabled in the action space
+
+- `enable_history_truncation`
+  - Type: `bool`
+  - Default: `true`
+  - Description: Whether history should be truncated to continue the session when hitting LLM context length limit
 
 ### Microagent Usage
 - `enable_prompt_extensions`
