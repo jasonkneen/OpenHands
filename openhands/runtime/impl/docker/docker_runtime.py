@@ -1,4 +1,5 @@
 import os
+import typing
 from functools import lru_cache
 from typing import Callable
 from uuid import UUID
@@ -22,6 +23,7 @@ from openhands.runtime.impl.action_execution.action_execution_client import (
 )
 from openhands.runtime.impl.docker.containers import stop_all_containers
 from openhands.runtime.plugins import PluginRequirement
+from openhands.runtime.runtime_status import RuntimeStatus
 from openhands.runtime.utils import find_available_tcp_port
 from openhands.runtime.utils.command import (
     DEFAULT_MAIN_MODULE,
@@ -144,7 +146,7 @@ class DockerRuntime(ActionExecutionClient):
         return self.api_url
 
     async def connect(self) -> None:
-        self.send_status_message('STATUS$STARTING_RUNTIME')
+        self.set_runtime_status(RuntimeStatus.STARTING_RUNTIME)
         try:
             await call_sync_from_async(self._attach_to_container)
         except docker.errors.NotFound as e:
@@ -164,14 +166,14 @@ class DockerRuntime(ActionExecutionClient):
                 f'Container started: {self.container_name}. VSCode URL: {self.vscode_url}',
             )
 
-        if DEBUG_RUNTIME:
+        if DEBUG_RUNTIME and self.container:
             self.log_streamer = LogStreamer(self.container, self.log)
         else:
             self.log_streamer = None
 
         if not self.attach_to_existing:
             self.log('info', f'Waiting for client to become ready at {self.api_url}...')
-            self.send_status_message('STATUS$WAITING_FOR_CLIENT')
+            self.set_runtime_status(RuntimeStatus.STARTING_RUNTIME)
 
         await call_sync_from_async(self.wait_until_alive)
 
@@ -186,7 +188,7 @@ class DockerRuntime(ActionExecutionClient):
             f'Container initialized with plugins: {[plugin.name for plugin in self.plugins]}. VSCode URL: {self.vscode_url}',
         )
         if not self.attach_to_existing:
-            self.send_status_message(' ')
+            self.set_runtime_status(RuntimeStatus.READY)
         self._runtime_initialized = True
 
     def maybe_build_runtime_container_image(self):
@@ -195,7 +197,7 @@ class DockerRuntime(ActionExecutionClient):
                 raise ValueError(
                     'Neither runtime container image nor base container image is set'
                 )
-            self.send_status_message('STATUS$STARTING_CONTAINER')
+            self.set_runtime_status(RuntimeStatus.BUILDING_RUNTIME)
             self.runtime_container_image = build_runtime_image(
                 self.base_container_image,
                 self.runtime_builder,
@@ -266,7 +268,7 @@ class DockerRuntime(ActionExecutionClient):
 
     def init_container(self) -> None:
         self.log('debug', 'Preparing to start container...')
-        self.send_status_message('STATUS$PREPARING_CONTAINER')
+        self.set_runtime_status(RuntimeStatus.STARTING_RUNTIME)
         self._host_port = self._find_available_port(EXECUTION_SERVER_PORT_RANGE)
         self._container_port = self._host_port
         # Use the configured vscode_port if provided, otherwise find an available port
@@ -281,7 +283,9 @@ class DockerRuntime(ActionExecutionClient):
         self.api_url = f'{self.config.sandbox.local_runtime_url}:{self._container_port}'
 
         use_host_network = self.config.sandbox.use_host_network
-        network_mode: str | None = 'host' if use_host_network else None
+        network_mode: typing.Literal['host'] | None = (
+            'host' if use_host_network else None
+        )
 
         # Initialize port mappings
         port_mapping: dict[str, list[dict[str, str]]] | None = None
@@ -353,6 +357,8 @@ class DockerRuntime(ActionExecutionClient):
         command = self.get_action_execution_server_startup_command()
 
         try:
+            if self.runtime_container_image is None:
+                raise ValueError('Runtime container image is not set')
             self.container = self.docker_client.containers.run(
                 self.runtime_container_image,
                 command=command,
@@ -364,7 +370,7 @@ class DockerRuntime(ActionExecutionClient):
                 name=self.container_name,
                 detach=True,
                 environment=environment,
-                volumes=volumes,
+                volumes=volumes,  # type: ignore
                 device_requests=(
                     [docker.types.DeviceRequest(capabilities=[['gpu']], count=-1)]
                     if self.config.sandbox.enable_gpu
@@ -373,7 +379,7 @@ class DockerRuntime(ActionExecutionClient):
                 **(self.config.sandbox.docker_runtime_kwargs or {}),
             )
             self.log('debug', f'Container started. Server url: {self.api_url}')
-            self.send_status_message('STATUS$CONTAINER_STARTED')
+            self.set_runtime_status(RuntimeStatus.RUNTIME_STARTED)
         except Exception as e:
             self.log(
                 'error',
